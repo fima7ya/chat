@@ -8,11 +8,12 @@
 
 #include <system_error>
 #include <cstring>
+#include <cassert>
 #include <iostream>
 
 namespace client 
 {
-	class Server
+	class Server : public proto::Target
 	{
 	public:
 		explicit Server(const std::string host, uint16_t port)
@@ -20,6 +21,11 @@ namespace client
 			, port_(port) 
 			, sd_(SocketOpen())
 		{}
+	public:
+		int GetId() const
+		{
+			return sd_;
+		}
 	public:
 		bool Connect()
 		{
@@ -37,12 +43,22 @@ namespace client
 			return true;
 		}
 
-		ResponsePtr Do(const SigninRequest& request)
+		proto::RequestPtr Recv()
+		{
+			char buf[1024];
+			int len = 1024;
+			len = recv(sd_, buf, 256, 0);
+
+
+			return proto::ReadRequest(0, buf, len);
+		}
+
+		proto::ResponsePtr Process(proto::SigninRequest& request) override
 		{
 			char buf[1024];
 			int len = 1024;
 
-			len = SigninRequest::serialize(request, buf, len); 
+			len = proto::SigninRequest::serialize(request, buf, len); 
 			if (len == -1) {
 				std::cerr << "signin serialize failed" << std::endl;
 				return nullptr;	
@@ -56,15 +72,15 @@ namespace client
 		
 			std::cout << "Signin response received" << std::endl;
 
-			return ReadResponse(buf, len);
+			return proto::ReadResponse(request.GetId(), buf, len);
 		}
 
-		ResponsePtr Do(const LoginRequest& request)
+		proto::ResponsePtr Process(proto::LoginRequest& request) override
 		{
 			char buf[1024];
 			int len = 1024;
 
-			len = LoginRequest::serialize(request, buf, len); 
+			len = proto::LoginRequest::serialize(request, buf, len); 
 			if (len == -1) {
 				std::cerr << "login serialize failed" << std::endl;
 				return nullptr;	
@@ -77,7 +93,28 @@ namespace client
 
 			std::cout << "Login response received" << std::endl;
 
-			return ReadResponse(buf, len);
+			return proto::ReadResponse(request.GetId(), buf, len);
+		}
+
+		proto::ResponsePtr Process(proto::MessageRequest& request) override 
+		{
+			char buf[1024];
+			int len = 1024;
+
+			len = request.serialize(buf, len); 
+			if (len == -1) {
+				std::cerr << "login serialize failed" << std::endl;
+				return nullptr;	
+			}
+			std::cout << "Send message request" << std::endl;
+			send(sd_, buf, len, 0);
+
+			std::cout << "Receive response" << std::endl;
+			len = recv(sd_, buf, 256, 0);
+
+			std::cout << "Message response received" << std::endl;
+
+			return proto::ReadResponse(request.GetId(), buf, len);
 		}
 
 	private:
@@ -95,6 +132,59 @@ namespace client
 		uint16_t port_;
 		int sd_;
 	};
+
+	class Client : public proto::Origin
+	{
+	public:
+		void Process(proto::SigninSuccess& response) override
+		{
+			std::cout << "SignedIn success" << std::endl;
+		}
+
+		void Process(proto::SigninFailure& response) override
+		{
+			std::cout << "SignedIn failure" << std::endl;
+		}
+		void Process(proto::LoginSuccess& response) override
+		{
+			std::cout << "Login success" << std::endl;
+		}
+		void Process(proto::LoginFailure& response) override
+		{
+			std::cout << "Login failed" << std::endl;
+		}
+		void Process(proto::MessageSuccess& request) override
+		{
+			std::cout << "Message success" << std::endl;
+		}
+	public:
+		/*
+		proto::ResponsePtr Process(proto::SigninRequest& request) override
+		{
+			assert(false);
+			return std::make_unique<proto::SigninSuccess>(0);
+		}
+
+		proto::ResponsePtr Process(proto::LoginRequest& request) override
+		{
+			assert(false);
+			return std::make_unique<proto::LoginSuccess>(0);
+		}
+		*/
+		
+
+		proto::ResponsePtr ShowMessage(proto::MessageRequestPtr request)
+		{
+			std::cout << "Message rceived" << std::endl;
+			for (const auto& name: request->names) {
+				std::cout << "From: " << name << std::endl;
+			}
+			std::cout << "Text: " << request->text << std::endl;
+			return std::make_unique<proto::MessageSuccess>(0);
+		}
+	};
+
+
 }
 
 

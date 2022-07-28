@@ -2,6 +2,14 @@
 
 #include <memory>
 #include <vector>
+#include <iostream>
+
+
+namespace proto 
+{
+
+class Target;
+class Origin;
 
 #pragma pack(push, 1)
 struct Header
@@ -18,11 +26,23 @@ enum class RequestType
 	Message
 };
 
-class Server;
 
-struct Response
+class Response
 {
+public:
+	explicit Response(int id)
+		: id_(id)
+	{}
+public:
+	virtual void Process(Origin& origin) = 0;
 	virtual int serialize(char* buf, size_t maxlen) = 0;
+public:
+	int GetId() const 
+	{
+		return id_;
+	}
+private:
+	int id_;
 };
 
 using ResponsePtr = std::unique_ptr<Response>;
@@ -30,6 +50,10 @@ using ResponsePtr = std::unique_ptr<Response>;
 	
 class SigninResponse : public Response
 {
+public:
+	explicit SigninResponse(int id)
+		: Response(id)
+	{}
 public:
 	enum class Result
 	{
@@ -47,6 +71,13 @@ public:
 
 class SigninSuccess : public SigninResponse
 {
+public:
+	explicit SigninSuccess(int id)
+		: SigninResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
+
 	int serialize(char* buf, size_t maxlen) override
 	{
 		int len = SigninResponse::serialize(buf, maxlen);
@@ -57,6 +88,13 @@ class SigninSuccess : public SigninResponse
 
 class SigninFailure: public SigninResponse
 {
+public:
+	explicit SigninFailure(int id)
+		: SigninResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
+
 	int serialize(char* buf, size_t maxlen) override
 	{
 		int len = SigninResponse::serialize(buf, maxlen);
@@ -67,6 +105,10 @@ class SigninFailure: public SigninResponse
 
 class LoginResponse : public Response
 {
+public:
+	explicit LoginResponse(int id)
+		: Response(id)
+	{}
 public:
 	enum class Result
 	{
@@ -84,6 +126,12 @@ public:
 
 class LoginSuccess : public LoginResponse
 {
+public:
+	explicit LoginSuccess(int id)
+		: LoginResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
 	int serialize(char* buf, size_t maxlen) override
 	{
 		int len = LoginResponse::serialize(buf, maxlen);
@@ -94,6 +142,12 @@ class LoginSuccess : public LoginResponse
 
 class LoginFailure: public LoginResponse
 {
+public:
+	explicit LoginFailure(int id)
+		: LoginResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
 	int serialize(char* buf, size_t maxlen) override
 	{
 		int len = LoginResponse::serialize(buf, maxlen);
@@ -105,6 +159,10 @@ class LoginFailure: public LoginResponse
 class MessageResponse : public Response
 {
 public:
+	explicit MessageResponse(int id)
+		: Response(id)
+	{}
+public:
 	int serialize(char* buf, size_t maxlen) override
 	{
 		return 0;
@@ -113,6 +171,13 @@ public:
 
 class MessageSuccess : public MessageResponse
 {
+public:
+	explicit MessageSuccess(int id)
+		: MessageResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
+
 	int serialize(char* buf, size_t maxlen) override
 	{
 		return 0;
@@ -121,6 +186,12 @@ class MessageSuccess : public MessageResponse
 
 class MessageFailure: public MessageResponse
 {
+public:
+	explicit MessageFailure(int id)
+		: MessageResponse(id)
+	{}
+public:
+	virtual void Process(Origin& origin) override; 
 	int serialize(char* buf, size_t maxlen) override
 	{
 		return 0;
@@ -128,9 +199,23 @@ class MessageFailure: public MessageResponse
 };
 
 
-struct Request
+class Request
 {
-	virtual ResponsePtr Process(Server& server) = 0;
+public:
+	explicit Request(int id)
+		: id_(id)
+	{}
+public:
+	virtual int serialize(char* buf, size_t maxlen) = 0;
+public:
+	virtual ResponsePtr Process(Target& target) = 0;
+public:
+	int GetId() const 
+	{
+		return id_;
+	}
+private:
+	int id_;
 };
 
 using RequestPtr = std::unique_ptr<Request>;
@@ -138,16 +223,34 @@ using RequestPtr = std::unique_ptr<Request>;
 class SigninRequest: public Request
 {
 public:
-	SigninRequest() = default;
-	explicit SigninRequest(const std::string& str) 
-		: name(str)
+	explicit SigninRequest(int id)
+		: Request(id)
+	{}
+		
+	SigninRequest(int id, const std::string& str) 
+		: Request(id)
+		, name(str)
 	{}
 public:
-	ResponsePtr Process(Server& server) override;
+	ResponsePtr Process(Target& target) override;
 
 public:
 	std::string name;
 
+	int serialize(char* buf, size_t maxlen) override
+	{
+		Header* header = (Header*)buf;		
+		header->type = static_cast<uint8_t>(RequestType::Singin);
+		header->len = name.size(); 
+
+		int pos = sizeof(Header); 
+		for (const char c: name) {
+			buf[pos++] = c;	
+		}
+		buf[pos++] = '\0';
+
+		return pos;
+	}
 	static int serialize(const SigninRequest& request, char* buf, size_t maxlen) {
 		Header* header = (Header*)buf;		
 		header->type = static_cast<uint8_t>(RequestType::Singin);
@@ -169,15 +272,33 @@ using SigninRequestPtr = std::unique_ptr<SigninRequest>;
 class LoginRequest: public Request
 {
 public:
-	LoginRequest() = default;
-	explicit LoginRequest(const std::string& str) 
-		: name(str)
+	explicit LoginRequest(int id)
+		: Request(id)
+	{}
+	LoginRequest(int id, const std::string& str) 
+		: Request(id)
+		, name(str)
 	{}
 public:
-	ResponsePtr Process(Server& server) override;
+	ResponsePtr Process(Target& target) override;
 public:
 	std::string name;
 public:
+	int serialize(char* buf, size_t maxlen) override 
+	{
+		Header* header = (Header*)buf;		
+		header->type = static_cast<uint8_t>(RequestType::Login);
+		header->len = name.size(); 
+
+		int pos = sizeof(Header); 
+		for (const char c: name) {
+			buf[pos++] = c;	
+		}
+		buf[pos++] = '\0';
+
+		return pos;
+	}
+
 	static int serialize(const LoginRequest& request, char* buf, size_t maxlen) {
 		Header* header = (Header*)buf;		
 		header->type = static_cast<uint8_t>(RequestType::Login);
@@ -198,24 +319,87 @@ using LoginRequestPtr = std::unique_ptr<LoginRequest>;
 class MessageRequest: public Request
 {
 public:
+	explicit MessageRequest(int id)
+		: Request(id)
+	{}
+public:
+	ResponsePtr Process(Target& target) override;
+public:
 	std::vector<std::string> names;
 	std::string text;
 
-	ResponsePtr Process(Server& server) override;
+public:
+	int serialize(char* buf, size_t maxlen) override 
+	{
+		Header* header = (Header*)buf;		
+		header->type = static_cast<uint8_t>(RequestType::Message);
+
+		int pos = sizeof(Header); 
+
+		for (const auto& name: names) {
+			for (const char c: name) {
+				buf[pos++] = c;	
+			}
+			buf[pos++] = '\0';		
+		}
+
+		for (const char c: text) {
+			buf[pos++] = c;	
+		}
+		buf[pos++] = '\0';
+
+		header->len = pos - sizeof(Header); 
+
+		return pos;
+	}
+
 };
 using MessageRequestPtr = std::unique_ptr<MessageRequest>;
 
+/*
 MessageRequest ReadMessage(const char* buf, size_t len);
 int WriteMessage(const MessageRequest& message, char* buf, size_t maxlen);
+*/
 
 
-
-
-RequestPtr ReadRequest(const char* buf, size_t nbytes);
-ResponsePtr ReadResponse(const char* buf, size_t nbytes);
+RequestPtr ReadRequest(int id, const char* buf, size_t nbytes);
+ResponsePtr ReadResponse(int id, const char* buf, size_t nbytes);
 
 
 void DumpBuffer(const char* buf, size_t len);
 
 
+class Target 
+{
+public:
+	ResponsePtr Accept(Request& request)
+	{
+		return request.Process(*this);
+	};
+	
+public:
+	virtual ResponsePtr Process(SigninRequest& request) = 0;
+	virtual ResponsePtr Process(LoginRequest& request) = 0;
+	virtual ResponsePtr Process(MessageRequest& request) = 0;
+};
+
+
+class Origin 
+{
+public:
+	void Accept(Response& response)
+	{
+		return response.Process(*this);
+	};
+	
+public:
+	virtual void Process(SigninSuccess& response) = 0;
+	virtual void Process(SigninFailure& response) = 0;
+	virtual void Process(LoginSuccess& response) = 0;
+	virtual void Process(LoginFailure& response) = 0;
+	virtual void Process(MessageSuccess& response) = 0;
+	// virtual void Process(MessageFailed& request) = 0;
+};
+
+}
 

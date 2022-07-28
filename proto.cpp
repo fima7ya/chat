@@ -5,28 +5,38 @@
 #include <iostream>
 #include <memory>
 
-MessageRequest ReadMessage(const char* buf, size_t len)
+namespace proto
 {
-	MessageRequest message;
+
+static MessageRequestPtr ReadMessage(const char* buf, size_t len)
+{
+	MessageRequestPtr message = std::make_unique<MessageRequest>(5);
 	std::string word;
 	for (size_t i = 0; i < len; ++i) {
 		char c = buf[i];
 		if (c =='\0') {
 			if (!word.empty()) {
-				message.names.push_back(word);
+				if (i + 1 < len) {
+					message->names.push_back(word);
+				} else {
+					message->text = word;
+				}
 				word.clear();
 			}
 		} else {
 			word += c;
 		}
 	}
+	/*
 	if (!word.empty()) {
-		message.text = word;
+		message->text = word;
 	}
+	*/
 
 	return message;
 }
 
+/*
 int WriteMessage(const MessageRequest& message, char* buf, size_t maxlen)
 {
 	size_t pos = 0;
@@ -44,8 +54,9 @@ int WriteMessage(const MessageRequest& message, char* buf, size_t maxlen)
 
 	return pos;
 }
+*/
 
-RequestPtr ReadRequest(const char* buf, size_t nbytes)
+RequestPtr ReadRequest(int id, const char* buf, size_t nbytes)
 {
 	if (nbytes < sizeof(Header)) {
 		throw std::domain_error(std::to_string(nbytes) + " less than header " + std::to_string(sizeof(Header)));
@@ -55,19 +66,16 @@ RequestPtr ReadRequest(const char* buf, size_t nbytes)
 
 	switch(static_cast<RequestType>(header->type)) {
 		case RequestType::Singin: {
-			return std::make_unique<SigninRequest>(std::string(buf + sizeof(Header), header->len));
+			return std::make_unique<SigninRequest>(id, std::string(buf + sizeof(Header), header->len));
 		} 
 		case RequestType::Login: {
-			std::cout << "Read login request" << std::endl;
-			return std::make_unique<LoginRequest>(std::string(buf + sizeof(Header), header->len));
+			return std::make_unique<LoginRequest>(id, std::string(buf + sizeof(Header), header->len));
 		}
-	 	/*	
 		case RequestType::Message: {
-			MessageRequest message = ReadMessage(buf + sizeof(Header), header->len);
-			// return std::move(std::make_unique<MessageRequest>(message));
-			break;
+			std::cout << "ReadRequest message" << std::endl;
+			return ReadMessage(buf + sizeof(Header), header->len);
 		} 
-		*/
+		
 		default:
 			assert(false);
 	}
@@ -75,7 +83,7 @@ RequestPtr ReadRequest(const char* buf, size_t nbytes)
 }
 
 
-ResponsePtr ReadResponse(const char* buf, size_t nbytes)
+ResponsePtr ReadResponse(int id, const char* buf, size_t nbytes)
 {
 	if (nbytes < sizeof(Header)) {
 		throw std::domain_error(std::to_string(nbytes) + " less than header " + std::to_string(sizeof(Header)));
@@ -86,15 +94,15 @@ ResponsePtr ReadResponse(const char* buf, size_t nbytes)
 	switch(static_cast<RequestType>(header->type)) {
 		case RequestType::Singin: {
 			if (static_cast<SigninResponse::Result>(buf[sizeof(Header)]) != SigninResponse::Result::Success) {
-				return std::make_unique<SigninFailure>(); 
+				return std::make_unique<SigninFailure>(id); 
 			} 
-			return std::make_unique<SigninSuccess>();
+			return std::make_unique<SigninSuccess>(id);
 		} 
 		case RequestType::Login: {
 			if (static_cast<LoginResponse::Result>(buf[sizeof(Header)]) != LoginResponse::Result::Success) {
-				return std::make_unique<LoginFailure>(); 
+				return std::make_unique<LoginFailure>(id); 
 			} 
-			return std::make_unique<LoginSuccess>();
+			return std::make_unique<LoginSuccess>(id);
 		}
 	 	/*	
 		case RequestType::Message: {
@@ -124,18 +132,47 @@ void DumpBuffer(const char* buf, size_t len)
 
 }
 
-ResponsePtr SigninRequest::Process(Server& server) 
+ResponsePtr SigninRequest::Process(Target& server) 
 {
 	return server.Process(*this);
 }
 
-ResponsePtr LoginRequest::Process(Server& server) 
+ResponsePtr LoginRequest::Process(Target& server) 
 {
 	return server.Process(*this);
 }
 
-ResponsePtr MessageRequest::Process(Server& server) 
+ResponsePtr MessageRequest::Process(Target& server) 
 {
 	return server.Process(*this);
+}
+
+
+void SigninSuccess::Process(Origin& origin) 
+{
+	origin.Process(*this);
+}
+
+void SigninFailure::Process(Origin& origin) 
+{
+	origin.Process(*this);
+}
+
+void LoginSuccess::Process(Origin& origin) 
+{
+	origin.Process(*this);
+}
+
+void LoginFailure::Process(Origin& origin) 
+{
+	origin.Process(*this);
+}
+
+void MessageSuccess::Process(Origin& origin) 
+{
+	origin.Process(*this);
+}
+
+
 }
 
